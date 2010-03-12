@@ -1,0 +1,1091 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+    <head> 
+        <title>Harmony - Procedural drawing tool</title> 
+        <meta charset="utf-8"> 
+        <meta name="viewport" content="width=device-width; initial-scale=1.0; maximum-scale=1.0; user-scalable=0;"/> 
+        <style type="text/css"> 
+            * { color: #444; font-family:Monospace; font-size:12px; }
+            body { background-color: #fff; margin: 0px; overflow: hidden; }
+            #menu { position: absolute; width: 280px; background-color: #eee; margin: auto; padding: 5px 10px; text-align: center; text-transform: uppercase; visibility: hidden; }
+            input, select { text-transform: uppercase; text-align:center; }
+
+            #picker { 
+                visibility: hidden;
+                position: absolute; 
+                border: 1px solid #666;
+                width: 220px; 
+                height:206px; 
+                left: 300px;
+                top: -100px;
+                background-color: #fff;
+            }
+            #picker .yui-picker-controls,
+            #picker .yui-picker-swatch,
+            #picker .yui-picker-websafe-swatch {
+                display: none;
+            }
+
+            #picker-header {
+                background-color: #eee;
+                text-align: right;
+            }
+
+            #picker-content{
+                position: relative;
+                margin: 0;
+                padding: 0;
+            }
+            #closelink {
+                text-decoration: none;
+            }
+
+
+            #colorlinks{
+                padding: 2px;
+            }
+
+            #colorlinks a {
+                text-decoration: none;
+                border: 1px solid #666;
+                font-size: 16px;
+                margin: 4px
+            }
+
+            #strokelink {
+                background-color: #000;
+            }
+
+            #filllink {
+                background-color: #fff;
+            }
+ 
+        </style> 
+        <script src="http://yui.yahooapis.com/3.1.0pr2/build/yui/yui-min.js"></script>
+    </head> 
+    <body> 
+        <div id="menu">Brush:</a> 
+        <select id="selector"></select> 
+        <input id="save" type="button" value="Save">
+        <input id="clear" type="button" value="Clear">
+        <div id="colorlinks">Stroke Color:<a href="#" id="strokelink">&nbsp;&nbsp;&nbsp;</a> Fill Color:<a href="#" id="filllink">&nbsp;&nbsp;&nbsp;</a></div>
+        </div> 
+ 
+        <div id="container"></div> 
+        <div id="picker">
+            <div id="picker-header"><a href="#" id="closelink">x<a><div>
+            <div id="picker-content"><div>
+        </div> 
+
+        <script type="text/javascript"> 
+
+YUI().use('yui2-colorpicker', function (Y) {
+
+    // This is a lightly modified version of the harmony sketching application
+    // created by Ricardo Cabello.  It adds a color picker for setting stroke
+    // and fill colors
+
+    // http://mrdoob.com/projects/harmony/
+
+    // Sketchy, Shaded, Chrome, Fur, LongFur and Web are variations of the idea of connecting neightbour points
+    // first implemented (afaik) by Ze Frank's The Scribbler (http://www.zefrank.com/scribbler/)
+
+    // This code uses the MIT license:
+    // http://www.opensource.org/licenses/mit-license.php
+
+    var container, menu, selector, saveButton, clearButton, canvas, context, style, picker, 
+        STYLES          = ["sketchy", "shaded", "chrome", "fur", "longfur", "web", "", "squares", "ribbon", "", "circles", "grid"],
+        STYLE_MAP       = {};
+        DEFAULT_STYLE   = "sketchy",
+        SCREEN_WIDTH    = window.innerWidth,
+        SCREEN_HEIGHT   = window.innerHeight,
+        mouseX          = 0, 
+        mouseY          = 0,
+        isMenuMouseOver = false, 
+        isMouseDown     = false,
+        colorTarget     = 'stroke',
+        YAHOO           = Y.YUI2,
+        Event           = YAHOO.util.Event,
+        Dom             = YAHOO.util.Dom;
+
+    Event.onAvailable('picker', function() {
+        var div        = Dom.get('picker'),
+            pickerUp   = false,
+            openPicker = function(e, what) {
+                if (pickerUp) {
+                    closePicker(e);
+                } else {
+                    colorTarget = what;
+                    var xy = Dom.getXY(this)
+                    xy[0] += 2;
+                    xy[1] += 22;
+                    Dom.setStyle(div, 'visibility', 'visible');
+                    Dom.setXY(div, xy);
+                    Event.stopEvent(e);
+                    pickerUp = true;
+                }
+            },
+            closePicker = function(e) {
+                if (pickerUp) {
+                    Dom.setStyle(div, 'visibility', 'hidden');
+                    Dom.setY(div, -100);
+                    Event.stopEvent(e);
+                    pickerUp = false;
+                }
+            };
+
+        picker = new YAHOO.widget.ColorPicker("picker-content", {
+            showhsvcontrols: true,
+            showhexcontrols: true,
+            images: {
+                PICKER_THUMB: "http://yui.yahooapis.com/2.8.0r4/build/colorpicker/assets/picker_thumb.png",
+                HUE_THUMB: "http://yui.yahooapis.com/2.8.0r4/build/colorpicker/assets/hue_thumb.png"
+            }
+        });
+
+        picker.setValue([0, 0, 0], false);
+
+        picker.on("rgbChange", function(o) {
+            var newValue = o.newValue;
+            context.r = newValue[0];
+            context.g = newValue[1];
+            context.b = newValue[2];
+            if (colorTarget == 'fill') {
+                context.setFill(null, o.newValue);
+            } else {
+                context.setStroke(null, o.newValue);
+            }
+
+            Dom.setStyle(colorTarget + 'link', 'background-color', '#' + this.get('hex'));
+        });
+        
+        Event.on('strokelink', 'click', openPicker, 'stroke');
+        Event.on('filllink', 'click', openPicker, 'fill');
+        Event.on('container', 'mousedown', closePicker);
+        Event.on('closelink', 'click', closePicker);
+    });
+ 
+    function randomColor() {
+        return Math.floor(Math.random() * 255);
+    };
+
+    Event.onAvailable('container', function () {
+        container = document.getElementById('container');
+
+        menu = document.getElementById('menu');
+        menu.style.left = ((SCREEN_WIDTH - menu.offsetWidth) / 2) + 'px';
+        menu.style.visibility = 'visible';
+        menu.addEventListener('mouseover', onMenuMouseOver, false);
+        menu.addEventListener('mouseout', onMenuMouseOut, false);
+
+        canvas = document.createElement("canvas");
+        canvas.width = SCREEN_WIDTH;
+        canvas.height = SCREEN_HEIGHT;
+        canvas.style.cursor = 'crosshair';
+        container.appendChild(canvas);
+
+        context = canvas.getContext("2d");
+        context.fillStyle = "rgb(255, 255, 255)";
+        context.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+        /////////////////////////////////////////////////////////////////
+
+        // global state to persist color choice
+        context.state = {
+            stroke: {
+                rgb: [0, 0, 0],
+                alpha: 0.1
+            },
+            fill: {
+                rgb: [255, 255, 255],
+                alpha: 1
+            }
+        };
+
+        // updates the global state
+        context.rgba = function(state, alpha, rgb) {
+            if (alpha) {
+                state.alpha = alpha;
+            }
+            if (rgb) {
+                state.rgb = rgb;
+            }
+
+            return 'rgba(' + state.rgb.join() + ', ' + state.alpha + ')';
+        };
+
+        // sets the global stroke state
+        context.setStroke = function(alpha, rgb) {
+            this.strokeStyle = this.rgba(this.state.stroke, alpha, rgb);
+        };
+
+        // sets the global fill state
+        context.setFill = function(alpha, rgb) {
+            this.fillStyle = this.rgba(this.state.fill, alpha, rgb);
+        };
+
+        //////////////////////////////////////////////////////////////////
+
+        saveButton = document.getElementById('save');
+        saveButton.addEventListener('click', save, false);
+
+        clearButton = document.getElementById('clear');
+        clearButton.addEventListener('click', clear, false);
+
+        selector = document.getElementById('selector');
+        selector.addEventListener('change', onSelectorChange, false);
+
+        for (var i = 0; i < STYLES.length; i++)
+        {
+            var option = document.createElement("option");
+            option.id = i;
+            option.innerHTML = STYLES[i].toUpperCase();
+            selector.appendChild(option);
+        }
+
+        if (window.location.hash)
+        {
+            var hash = window.location.hash.substr(1,window.location.hash.length);
+
+            for (var i = 0; i < STYLES.length; i++)
+            {
+                if (hash == STYLES[i])
+                {
+                    style = eval("new " + STYLES[i] + "(context)");
+                    selector.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (!style)
+        {
+            style = eval("new " + STYLES[0] + "(context)");
+        }
+
+        document.onmousedown = onDocumentMouseDown;
+        document.onmouseout = onCanvasMouseUp;
+
+        canvas.onmousedown = onCanvasMouseDown;
+        canvas.onmouseup = onCanvasMouseUp;
+        canvas.onmousemove = onCanvasMouseMove;
+
+        canvas.ontouchstart = onCanvasTouchStart;
+        canvas.ontouchend = onCanvasTouchEnd;
+        canvas.ontouchmove = onCanvasTouchMove;
+    });
+
+    function onDocumentMouseDown(e)
+    {
+        return isMenuMouseOver;
+    }
+
+    function onSelectorChange(e)
+    {
+        if (STYLES[selector.selectedIndex] == "")
+            return;
+
+        style.destroy();
+        style = eval("new " + STYLES[selector.selectedIndex] + "(context)");
+
+        window.location.hash = STYLES[selector.selectedIndex];
+    }
+
+    function onMenuMouseOver(e)
+    {
+        isMenuMouseOver = true;
+    }
+
+    function onMenuMouseOut(e)
+    {
+        isMenuMouseOver = false;
+    }
+
+    function ondocumentMouseDown(e)
+    {
+        return !isMenuMouseOver;
+    }
+
+    function onCanvasMouseDown(e)
+    {
+        isMouseDown = true;
+
+        style.strokeStart( mouseX, mouseY );
+    }
+
+    function onCanvasMouseUp(e)
+    {
+        isMouseDown = false;
+
+        style.strokeEnd( mouseX, mouseY );
+    }
+
+    function onCanvasMouseMove(e)
+    {
+        if (!e) var e = window.event;
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+
+        if (!isMouseDown)
+            return;
+
+        style.stroke( mouseX, mouseY );
+    }
+
+    function onCanvasTouchStart(e)
+    {
+        if(e.touches.length == 1)
+        {
+            var touch = e.touches[0];
+            style.strokeStart( touch.pageX, touch.pageY );
+        }
+
+        return false;
+    }
+
+    function onCanvasTouchEnd(e)
+    {
+        if(e.touches.length == 1)
+        {
+            var touch = e.touches[0];
+            style.strokeEnd( touch.pageX, touch.pageY );
+        }
+    }
+
+    function onCanvasTouchMove(e)
+    {
+        if(e.touches.length == 1)
+        {
+            var touch = e.touches[0];
+            style.stroke( touch.pageX, touch.pageY );
+        }
+    }
+
+    function save()
+    {
+        window.open(canvas.toDataURL("image/png"),'mywindow');
+    }
+
+    function clear()
+    {
+        context.globalCompositeOperation = 'source-over';
+        context.fillStyle = "rgb(255, 255, 255)";
+        context.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+        style = eval("new " + STYLES[selector.selectedIndex] + "(context)");
+
+        points = new Array();
+        count = 0;
+    }
+
+
+    // SAVING MY POOR SERVER :S (These classes are supposed to be on external files)
+
+    function chrome( context )
+    {
+        this.init( context );
+    }
+
+    chrome.prototype =
+    {
+        context: null,
+
+        prevMouseX: null, prevMouseY: null,
+
+        points: null, count: null,
+
+        init: function( context )
+        {
+            this.context = context;
+            this.context.lineWidth = 1;
+
+            if (RegExp(" AppleWebKit/").test(navigator.userAgent))
+                this.context.globalCompositeOperation = 'darker';
+
+            this.points = new Array();
+            this.count = 0;
+
+        },
+
+        destroy: function()
+        {
+        },
+
+        strokeStart: function( mouseX, mouseY )
+        {
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+        },
+
+
+        stroke: function( mouseX, mouseY )
+        {
+            this.points.push( [ mouseX, mouseY ] );
+
+            this.context.setStroke(0.1);
+
+            this.context.beginPath();
+            this.context.moveTo(this.prevMouseX, this.prevMouseY);
+            this.context.lineTo(mouseX, mouseY);
+            this.context.stroke();
+
+            for (var i = 0; i < this.points.length; i++)
+            {
+                var size = 0.2;
+                var dx = this.points[i][0] - this.points[this.count][0];
+                var dy = this.points[i][1] - this.points[this.count][1];
+                var d = dx * dx + dy * dy;
+
+                if (d < 1000)
+                {
+
+                    this.context.setStroke(0.1, [randomColor(), randomColor(), randomColor()]);
+
+                    this.context.beginPath();
+                    this.context.moveTo( this.points[this.count][0] + (dx * size), this.points[this.count][1] + (dy * size));
+                    this.context.lineTo( this.points[i][0] - (dx * size), this.points[i][1] - (dy * size));
+                    this.context.stroke();
+                }
+            }
+
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+
+            this.count ++;
+        },
+
+        strokeEnd: function( mouseX, mouseY )
+        {
+
+        }
+    }
+
+    function circles( context )
+    {
+        this.init( context );
+    }
+
+    circles.prototype =
+    {
+        context: null,
+
+        prevMouseX: null, prevMouseY: null,
+
+        points: null, count: null,
+
+        init: function( context )
+        {
+            this.context = context;
+            this.context.lineWidth = 1;
+            this.context.globalCompositeOperation = 'source-over';
+
+            this.points = new Array();
+        },
+
+        destroy: function()
+        {
+        },
+
+        strokeStart: function( mouseX, mouseY )
+        {
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+        },
+
+        stroke: function( mouseX, mouseY )
+        {
+            this.points.push( [ mouseX, mouseY ] );
+
+            var dx = mouseX - this.prevMouseX;
+            var dy = mouseY - this.prevMouseY;
+            var d = Math.sqrt(dx * dx + dy * dy) * 2;
+            var d_half = d / 2;
+
+            var cx = Math.floor(mouseX / 100) * 100 + 50;
+            var cy = Math.floor(mouseY / 100) * 100 + 50;
+
+            var steps = Math.floor( Math.random() * 10 );
+            var step_delta = d / steps;
+
+            for (var i = 0; i < steps; i++)
+            {
+                this.context.setStroke(0.1);
+
+                this.context.beginPath();
+                this.context.arc( cx, cy, (steps - i) * step_delta, 0, Math.PI*2, true);
+                this.context.stroke();
+            }
+
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+        },
+
+        strokeEnd: function( mouseX, mouseY )
+        {
+
+        }
+    }
+
+    function fur( context )
+    {
+        this.init( context );
+    }
+
+    fur.prototype =
+    {
+        context: null,
+
+        prevMouseX: null, prevMouseY: null,
+
+        points: null, count: null,
+
+        init: function( context )
+        {
+            this.context = context;
+            this.context.lineWidth = 1;
+
+            this.points = new Array();
+            this.count = 0;
+        },
+
+        destroy: function()
+        {
+        },
+
+        strokeStart: function( mouseX, mouseY )
+        {
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+        },
+
+        stroke: function( mouseX, mouseY )
+        {
+            this.points.push( [ mouseX, mouseY ] );
+
+            this.context.setStroke(0.1);
+
+            this.context.beginPath();
+            this.context.moveTo(this.prevMouseX, this.prevMouseY);
+            this.context.lineTo(mouseX, mouseY);
+            this.context.stroke();
+
+            for (var i = 0; i < this.points.length; i++)
+            {
+                var size = 0.5;
+                var dx = this.points[i][0] - this.points[this.count][0];
+                var dy = this.points[i][1] - this.points[this.count][1];
+                var d = dx * dx + dy * dy;
+
+                if (d < 2000 && Math.random() > d / 2000)
+                {
+                    this.context.setStroke(0.1);
+
+                    this.context.beginPath();
+                    this.context.moveTo( mouseX + (dx * size), mouseY + (dy * size));
+                    this.context.lineTo( mouseX - (dx * size), mouseY - (dy * size));
+                    this.context.stroke();
+                }
+            }
+
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+
+            this.count ++;
+        },
+
+        strokeEnd: function( mouseX, mouseY )
+        {
+
+        }
+    }
+
+    function grid( context )
+    {
+        this.init( context );
+    }
+
+    grid.prototype =
+    {
+        context: null,
+
+        init: function( context )
+        {
+            this.context = context;
+            this.context.lineWidth = 1;
+
+            if (RegExp(" AppleWebKit/").test(navigator.userAgent))
+                this.context.globalCompositeOperation = 'darker';
+
+        },
+
+        destroy: function()
+        {
+        },
+
+        strokeStart: function( mouseX, mouseY ) {
+            this.context.setStroke(0.01);
+        },
+
+        stroke: function( mouseX, mouseY )
+        {
+            var cx = Math.round(mouseX / 100) * 100;
+            var cy = Math.round(mouseY / 100) * 100;
+
+            var dx = (cx - mouseX) * 10;
+            var dy = (cy - mouseY) * 10;
+
+            for (var i = 0; i < 50; i++)
+            {
+                this.context.beginPath();
+                this.context.moveTo( cx, cy );
+                this.context.quadraticCurveTo(mouseX + Math.random() * dx, mouseY + Math.random() * dy, cx, cy);
+                this.context.stroke();
+            }
+        },
+
+        strokeEnd: function( mouseX, mouseY )
+        {
+
+        }
+    }
+
+    function longfur( context )
+    {
+        this.init( context );
+    }
+
+    longfur.prototype =
+    {
+        context: null,
+
+        points: null, count: null,
+
+        init: function( context )
+        {
+            this.context = context;
+            this.context.lineWidth = 1;
+            this.context.globalCompositeOperation = 'source-over';
+            this.context.setStroke(0.05);
+
+            this.points = new Array();
+            this.count = 0;
+        },
+
+        destroy: function()
+        {
+        },
+
+        strokeStart: function( mouseX, mouseY )
+        {
+        },
+
+        stroke: function( mouseX, mouseY )
+        {
+            this.points.push( [ mouseX, mouseY ] );
+
+            for (var i = 0; i < this.points.length; i++)
+            {
+                var size = -Math.random();
+                var dx = this.points[i][0] - this.points[this.count][0];
+                var dy = this.points[i][1] - this.points[this.count][1];
+                var d = dx * dx + dy * dy;
+
+                if (d < 4000 && Math.random() > d / 4000)
+                {
+                    this.context.beginPath();
+                    this.context.moveTo( this.points[this.count][0] + (dx * size), this.points[this.count][1] + (dy * size));
+                    this.context.lineTo( this.points[i][0] - (dx * size) + Math.random() * 2, this.points[i][1] - (dy * size) + Math.random() * 2);
+                    this.context.stroke();
+                }
+            }
+
+            this.count ++;
+        },
+
+        strokeEnd: function( mouseX, mouseY )
+        {
+
+        }
+    }
+
+    function ribbon( context )
+    {
+        this.init( context );
+    }
+
+    ribbon.prototype =
+    {
+        context: null,
+
+        mouseX: null, mouseY: null,
+
+        painters: null,
+
+        interval: null,
+
+        init: function( context )
+        {
+            this.context = context;
+            this.context.lineWidth = 1;
+
+            // this.context.strokeStyle = "rgba( 0, 0, 0, 0.05 )";
+            // moved to strokeStart
+
+            this.context.globalCompositeOperation = 'source-over';
+
+            this.mouseX = SCREEN_WIDTH / 2;
+            this.mouseY = SCREEN_HEIGHT / 2;
+
+            this.painters = new Array();
+
+            for (var i = 0; i < 50; i++)
+            {
+                this.painters.push({ dx: SCREEN_WIDTH / 2, dy: SCREEN_HEIGHT / 2, ax: 0, ay: 0, div: 0.1, ease: Math.random() * 0.2 + 0.6 });
+            }
+
+            this.isDrawing = false;
+
+            this.interval = setInterval( bargs( function( _this ) { _this.update(); return false; }, this ), 1000/60 );
+        },
+
+        destroy: function()
+        {
+            clearInterval(this.interval);
+        },
+
+        strokeStart: function( mouseX, mouseY ) {
+            this.context.setStroke(0.05);
+
+            this.mouseX = mouseX;
+            this.mouseY = mouseY
+
+            for (var i = 0; i < this.painters.length; i++)
+            {
+                this.painters[i].dx = mouseX;
+                this.painters[i].dy = mouseY;
+            }
+
+            this.shouldDraw = true;
+        },
+
+        stroke: function( mouseX, mouseY )
+        {
+            this.mouseX = mouseX;
+            this.mouseY = mouseY;
+        },
+
+        strokeEnd: function( mouseX, mouseY )
+        {
+
+        },
+
+        update: function()
+        {
+            for (var i = 0; i < this.painters.length; i++)
+            {
+                this.context.beginPath();
+                this.context.moveTo(this.painters[i].dx, this.painters[i].dy);      
+
+                this.painters[i].dx -= this.painters[i].ax = (this.painters[i].ax + (this.painters[i].dx - this.mouseX) * this.painters[i].div) * this.painters[i].ease;
+                this.painters[i].dy -= this.painters[i].ay = (this.painters[i].ay + (this.painters[i].dy - this.mouseY) * this.painters[i].div) * this.painters[i].ease;
+                this.context.lineTo(this.painters[i].dx, this.painters[i].dy);
+                this.context.stroke();
+            }
+        }
+    }
+
+    function bargs( _fn )
+    {
+        var args = [];
+        for( var n = 1; n < arguments.length; n++ )
+            args.push( arguments[ n ] );
+        return function () { return _fn.apply( this, args ); };
+    }
+
+    function shaded( context )
+    {
+        this.init( context );
+    }
+
+    shaded.prototype =
+    {
+        context: null,
+
+        prevMouseX: null, prevMouseY: null,
+
+        points: null, count: null,
+
+        init: function( context )
+        {
+            this.context = context;
+            this.context.lineWidth = 1;
+            this.context.globalCompositeOperation = 'source-over';
+
+            this.points = new Array();
+            this.count = 0;
+        },
+
+        destroy: function()
+        {
+        },
+
+        strokeStart: function( mouseX, mouseY )
+        {
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+        },
+
+        stroke: function( mouseX, mouseY )
+        {
+            this.points.push( [ mouseX, mouseY ] );
+
+            for (var i = 0; i < this.points.length; i++)
+            {
+                var size = 0.3;
+                var dx = this.points[i][0] - this.points[this.count][0];
+                var dy = this.points[i][1] - this.points[this.count][1];
+                var d = dx * dx + dy * dy;
+
+                if (d < 1000)
+                {
+
+                    this.context.setStroke((1 - (d / 1000)) * 0.1);
+
+                    this.context.beginPath();
+                    this.context.moveTo( this.points[this.count][0], this.points[this.count][1]);
+                    this.context.lineTo( this.points[i][0], this.points[i][1]);
+                    this.context.stroke();
+                }
+            }
+
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+
+            this.count ++;
+        },
+
+        strokeEnd: function( mouseX, mouseY )
+        {
+
+        }
+    }
+
+    function sketchy( context )
+    {
+        this.init( context );
+    }
+
+    sketchy.prototype =
+    {
+        context: null,
+
+        prevMouseX: null, prevMouseY: null,
+
+        points: null, count: null,
+
+        init: function( context )
+        {
+            this.context = context;
+            this.context.lineWidth = 1;
+            this.context.globalCompositeOperation = 'source-over';
+
+            this.points = new Array();
+            this.count = 0;
+        },
+
+        destroy: function()
+        {
+        },
+
+        strokeStart: function( mouseX, mouseY )
+        {
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+        },
+
+        stroke: function( mouseX, mouseY )
+        {
+            var context = this.context;
+
+            this.points.push( [ mouseX, mouseY ] );
+
+            context.strokeStyle = "rgba(0, 0, 0, 0.05)";
+
+            context.setStroke(0.05);
+
+            context.beginPath();
+            context.moveTo(this.prevMouseX, this.prevMouseY);
+            context.lineTo(mouseX, mouseY);
+            context.stroke();
+
+            context.setStroke(0.05);
+
+            for (var i = 0; i < this.points.length; i++)
+            {
+                var dx = this.points[i][0] - this.points[this.count][0];
+                var dy = this.points[i][1] - this.points[this.count][1];
+                var d = dx * dx + dy * dy;
+
+                if (d < 4000 && Math.random() > d / 2000) {
+                    context.beginPath();
+                    context.moveTo( this.points[this.count][0] + (dx * 0.3), this.points[this.count][1] + (dy * 0.3));
+                    context.lineTo( this.points[i][0] - (dx * 0.3), this.points[i][1] - (dy * 0.3));
+                    context.stroke();
+                }
+            }
+
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+
+            this.count ++;
+        },
+
+        strokeEnd: function( mouseX, mouseY )
+        {
+
+        }
+    }
+
+    function squares( context )
+    {
+        this.init( context );
+    }
+
+    squares.prototype =
+    {
+        context: null,
+
+        prevMouseX: null, prevMouseY: null,
+
+        init: function( context )
+        {
+            this.context = context;
+            this.context.globalCompositeOperation = 'source-over';
+
+            this.context.lineWidth = 1;
+        },
+
+        destroy: function()
+        {
+        },
+
+        strokeStart: function( mouseX, mouseY )
+        {
+            this.context.setStroke(1);
+
+            this.context.setFill();
+
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+        },
+
+        stroke: function( mouseX, mouseY )
+        {
+            var dx = mouseX - this.prevMouseX;
+            var dy = mouseY - this.prevMouseY;
+
+            var angle = 1.57079633;
+
+            var px = Math.cos(angle) * dx - Math.sin(angle) * dy;
+            var py = Math.sin(angle) * dx + Math.cos(angle) * dy ;
+
+            this.context.beginPath();
+            this.context.moveTo(this.prevMouseX - px, this.prevMouseY - py);
+            this.context.lineTo(this.prevMouseX + px, this.prevMouseY + py);
+            this.context.lineTo(mouseX + px, mouseY + py);
+            this.context.lineTo(mouseX - px, mouseY - py);
+            this.context.lineTo(this.prevMouseX - px, this.prevMouseY - py);
+            this.context.fill();
+            this.context.stroke();
+
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+        },
+
+        strokeEnd: function( mouseX, mouseY )
+        {
+
+        }
+    }
+
+    function web( context )
+    {
+        this.init( context );
+    }
+
+    web.prototype =
+    {
+        context: null,
+
+        prevMouseX: null, prevMouseY: null,
+
+        points: null, count: null,
+
+        init: function( context )
+        {
+            this.context = context;
+            this.context.lineWidth = 1;
+            this.context.globalCompositeOperation = 'source-over';
+
+            this.points = new Array();
+            this.count = 0;
+        },
+
+        destroy: function()
+        {
+        },
+
+        strokeStart: function( mouseX, mouseY )
+        {
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+        },
+
+        stroke: function( mouseX, mouseY )
+        {
+            this.points.push( [ mouseX, mouseY ] );
+
+            // this.context.strokeStyle = "rgba(0, 0, 0, 0.5)";
+
+            context.setStroke(0.5);
+
+            this.context.beginPath();
+            this.context.moveTo(this.prevMouseX, this.prevMouseY);
+            this.context.lineTo(mouseX, mouseY);
+            this.context.stroke();
+
+            context.setStroke(0.1);
+
+            for (var i = 0; i < this.points.length; i++)
+            {
+                var dx = this.points[i][0] - this.points[this.count][0];
+                var dy = this.points[i][1] - this.points[this.count][1];
+                var d = dx * dx + dy * dy;
+
+                if (d < 2500 && Math.random() > 0.9)
+                {
+                    this.context.beginPath();
+                    this.context.moveTo( this.points[this.count][0], this.points[this.count][1]);
+                    this.context.lineTo( this.points[i][0], this.points[i][1]);
+                    this.context.stroke();
+                }
+            }
+
+            this.prevMouseX = mouseX;
+            this.prevMouseY = mouseY;
+
+            this.count ++;
+        },
+
+        strokeEnd: function( mouseX, mouseY )
+        {
+
+        }
+    }
+
+});
+
+    
+        </script> 
+    </body> 
+</html> 

@@ -1,0 +1,20 @@
+This is a lightly modified version of the harmony sketching application
+created by Ricardo Cabello.  It adds a color picker for setting stroke
+and fill colors.
+
+http://mrdoob.com/projects/harmony/
+
+Harmony uses the MIT license:
+http://www.opensource.org/licenses/mit-license.php
+
+It uses a preview release of YUI 3.1.0 to pull in the YUI 2.8.0 colorpicker,
+delivered via the Yahoo! CDN.  It allows you to colorize the stroke style
+for all of the brushes except 'chrome', and allows you to set the fill
+color for the 'boxes' brush.
+
+Some things that would make this even more interesting:
+
+* sliders to specify transparency settings
+* undo
+* blend
+* erase
